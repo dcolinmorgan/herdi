@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# iOS / Xcode
+DerivedData/
+.build/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# General
+.DS_Store
+.env
+*.log

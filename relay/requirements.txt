@@ -1,0 +1,2 @@
+websockets==14.1
+zeroconf==0.131.0

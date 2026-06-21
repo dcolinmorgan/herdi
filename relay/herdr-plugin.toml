@@ -1,0 +1,10 @@
+id = "mosshy.relay"
+name = "Mosshy Relay"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Pushes agent status events to mosshy relay daemon via UDP"
+platforms = ["macos", "linux"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3", "on_event.py"]
