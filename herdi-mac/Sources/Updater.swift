@@ -6,7 +6,7 @@ import Observation
 final class Updater {
     static let shared = Updater()
 
-    let currentVersion = "0.3.0"
+    let currentVersion = "0.3.1"
     let repo = "dcolinmorgan/herdi"
 
     var latestVersion: String?
@@ -16,7 +16,7 @@ final class Updater {
     var status: String?
 
     private var downloadURL: URL?
-    private var lastCheck: Date?
+    var lastCheck: Date?
 
     func checkForUpdates() {
         if let last = lastCheck, Date().timeIntervalSince(last) < 600 { return }

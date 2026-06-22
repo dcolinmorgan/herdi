@@ -4,6 +4,7 @@ struct MenuBarPanel: View {
     let relay: RelayConnection
     @Binding var launchAtLogin: Bool
     @State private var selectedAgent: Agent?
+    @State private var showSettings = false
     private let updater = Updater.shared
 
     private var blocked: [Agent] { relay.agents.filter { $0.status == .blocked } }
@@ -18,12 +19,17 @@ struct MenuBarPanel: View {
                 Text("herdi").font(.headline)
                 Spacer()
                 Text("\(relay.agents.count) agents").font(.caption).foregroundStyle(.secondary)
+                Button { showSettings.toggle() } label: {
+                    Image(systemName: "gear").font(.caption)
+                }.buttonStyle(.plain)
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
 
             Divider()
 
-            if let agent = selectedAgent {
+            if showSettings {
+                SettingsPanel(relay: relay, launchAtLogin: $launchAtLogin, updater: updater)
+            } else if let agent = selectedAgent {
                 ApprovalPanel(agent: agent, relay: relay) { selectedAgent = nil }
             } else {
                 // Agent list
@@ -33,10 +39,14 @@ struct MenuBarPanel: View {
                         if !working.isEmpty { section("Working", .green, working) }
                         if !idle.isEmpty { section("Idle", .gray, idle) }
                         if relay.agents.isEmpty {
-                            Text(relay.isConnected ? "No agents running" : "Not connected")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 40)
+                            VStack(spacing: 8) {
+                                Text(relay.isConnected ? "No agents running" : "Connecting…")
+                                    .foregroundStyle(.secondary)
+                                Text("Mode: \(relay.mode.rawValue)")
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
                         }
                     }
                     .padding(12)
@@ -46,21 +56,7 @@ struct MenuBarPanel: View {
             Divider()
 
             // Footer
-            HStack {
-                Toggle("Launch at Login", isOn: $launchAtLogin)
-                    .toggleStyle(.switch).controlSize(.mini)
-                Spacer()
-                if !relay.isConnected {
-                    Button("Reconnect") { relay.connect(to: relay.hostAddress) }
-                        .font(.caption)
-                }
-                Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .buttonStyle(.plain).font(.caption)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-
-            // Update bar
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 if let status = updater.status {
                     Text(status).font(.caption2).foregroundStyle(.secondary)
                 }
@@ -68,12 +64,11 @@ struct MenuBarPanel: View {
                 if updater.updateAvailable {
                     Button("Update") { updater.performUpdate() }
                         .font(.caption).disabled(updater.isUpdating)
-                } else {
-                    Button("Check") { updater.checkForUpdates() }
-                        .font(.caption2).buttonStyle(.plain).disabled(updater.isChecking)
                 }
+                Button("Quit") { NSApplication.shared.terminate(nil) }
+                    .buttonStyle(.plain).font(.caption)
             }
-            .padding(.horizontal, 12).padding(.bottom, 6)
+            .padding(.horizontal, 12).padding(.vertical, 6)
         }
         .onAppear { updater.checkForUpdates() }
     }
@@ -93,6 +88,102 @@ struct MenuBarPanel: View {
         }
     }
 }
+
+// MARK: - Settings
+
+struct SettingsPanel: View {
+    let relay: RelayConnection
+    @Binding var launchAtLogin: Bool
+    let updater: Updater
+    @State private var relayURL = "ws://127.0.0.1:8375"
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Connection
+                GroupBox("Connection") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Mode").font(.caption)
+                            Spacer()
+                            Picker("", selection: Binding(
+                                get: { relay.mode },
+                                set: { newMode in
+                                    if newMode == .direct { relay.startDirect() }
+                                    else { relay.connectRelay(to: relayURL) }
+                                }
+                            )) {
+                                ForEach(RelayConnection.ConnectionMode.allCases, id: \.self) { mode in
+                                    Text(mode.rawValue).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(width: 180)
+                        }
+                        HStack {
+                            Text("Status").font(.caption)
+                            Spacer()
+                            Circle().fill(relay.isConnected ? .green : .red).frame(width: 6, height: 6)
+                            Text(relay.isConnected ? "Connected" : "Disconnected")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        if relay.mode == .relay {
+                            HStack {
+                                TextField("ws://host:8375", text: $relayURL)
+                                    .textFieldStyle(.roundedBorder).font(.caption)
+                                Button("Connect") { relay.connectRelay(to: relayURL) }
+                                    .font(.caption)
+                            }
+                        }
+                        if relay.mode == .direct {
+                            Text("Polling herdr every 2s via CLI")
+                                .font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .padding(4)
+                }
+
+                // General
+                GroupBox("General") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Launch at Login", isOn: $launchAtLogin)
+                            .toggleStyle(.switch).controlSize(.small)
+                    }
+                    .padding(4)
+                }
+
+                // Updates
+                GroupBox("Updates") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Current: v\(updater.currentVersion)").font(.caption)
+                            Spacer()
+                            if updater.updateAvailable {
+                                Text("v\(updater.latestVersion ?? "?") available").font(.caption).foregroundStyle(.green)
+                            }
+                        }
+                        HStack {
+                            if updater.updateAvailable {
+                                Button("Install Update") { updater.performUpdate() }
+                                    .disabled(updater.isUpdating)
+                            }
+                            Spacer()
+                            Button("Check Now") { updater.lastCheck = nil; updater.checkForUpdates() }
+                                .font(.caption).disabled(updater.isChecking)
+                        }
+                        if let status = updater.status {
+                            Text(status).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(4)
+                }
+            }
+            .padding(12)
+        }
+    }
+}
+
+// MARK: - Agent Row
 
 struct AgentRow: View {
     let agent: Agent
@@ -128,6 +219,8 @@ struct AgentRow: View {
         .contentShape(Rectangle())
     }
 }
+
+// MARK: - Approval Panel
 
 struct ApprovalPanel: View {
     let agent: Agent
