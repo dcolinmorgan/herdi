@@ -4,6 +4,7 @@ struct MenuBarPanel: View {
     let relay: RelayConnection
     @Binding var launchAtLogin: Bool
     @State private var selectedAgent: Agent?
+    private let updater = Updater.shared
 
     private var blocked: [Agent] { relay.agents.filter { $0.status == .blocked } }
     private var working: [Agent] { relay.agents.filter { $0.status == .working } }
@@ -57,7 +58,24 @@ struct MenuBarPanel: View {
                     .buttonStyle(.plain).font(.caption)
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
+
+            // Update bar
+            HStack(spacing: 6) {
+                if let status = updater.status {
+                    Text(status).font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if updater.updateAvailable {
+                    Button("Update") { updater.performUpdate() }
+                        .font(.caption).disabled(updater.isUpdating)
+                } else {
+                    Button("Check") { updater.checkForUpdates() }
+                        .font(.caption2).buttonStyle(.plain).disabled(updater.isChecking)
+                }
+            }
+            .padding(.horizontal, 12).padding(.bottom, 6)
         }
+        .onAppear { updater.checkForUpdates() }
     }
 
     private func section(_ title: String, _ color: Color, _ agents: [Agent]) -> some View {
