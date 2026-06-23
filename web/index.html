@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>herdr-remote</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, system-ui, sans-serif; background: #0a0a0a; color: #e5e5e5; min-height: 100vh; padding: 16px; padding-top: env(safe-area-inset-top, 16px); }
+h1 { font-size: 1.2rem; margin-bottom: 4px; }
+.status { font-size: 0.75rem; color: #888; margin-bottom: 16px; display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot.green { background: #22c55e; }
+.dot.red { background: #ef4444; }
+.dot.orange { background: #f97316; animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: 0.5; } }
+
+.connect-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+.connect-bar input { flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #333; background: #1a1a1a; color: #e5e5e5; font-size: 14px; }
+.connect-bar button { padding: 8px 16px; border-radius: 8px; border: none; background: #22c55e; color: #000; font-weight: 600; font-size: 14px; cursor: pointer; }
+
+.section { margin-bottom: 16px; }
+.section-header { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #666; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.section-header .dot { width: 6px; height: 6px; }
+
+.agent { background: #1a1a1a; border-radius: 10px; padding: 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; cursor: pointer; transition: background 0.15s; }
+.agent:active { background: #2a2a2a; }
+.agent .info { flex: 1; }
+.agent .project { font-size: 0.9rem; font-weight: 500; }
+.agent .meta { font-size: 0.7rem; color: #888; }
+.agent .badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
+.badge.blocked { background: #ef444433; color: #ef4444; }
+.badge.working { background: #22c55e33; color: #22c55e; }
+.badge.idle { background: #66666633; color: #888; }
+
+.modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 100; padding: 16px; padding-top: env(safe-area-inset-top, 60px); }
+.modal.active { display: flex; flex-direction: column; }
+.modal-content { background: #1a1a1a; border-radius: 16px; padding: 16px; flex: 1; display: flex; flex-direction: column; max-height: 90vh; }
+.modal h2 { font-size: 1rem; margin-bottom: 12px; }
+.modal .prompt { flex: 1; overflow-y: auto; font-family: monospace; font-size: 0.75rem; color: #aaa; background: #0a0a0a; border-radius: 8px; padding: 12px; margin-bottom: 12px; white-space: pre-wrap; }
+.modal .actions { display: flex; flex-direction: column; gap: 8px; }
+.modal .actions button { padding: 12px; border-radius: 10px; border: none; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+.btn-approve { background: #22c55e; color: #000; }
+.btn-trust { background: #3b82f6; color: #fff; }
+.btn-reject { background: #ef4444; color: #fff; }
+.modal .custom { display: flex; gap: 8px; margin-top: 8px; }
+.modal .custom input { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #333; background: #0a0a0a; color: #e5e5e5; font-size: 14px; }
+.modal .custom button { padding: 10px 16px; border-radius: 8px; border: none; background: #555; color: #fff; font-weight: 600; }
+.close-btn { position: absolute; top: 16px; right: 16px; background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer; }
+
+.empty { text-align: center; color: #666; padding: 60px 20px; }
+</style>
+</head>
+<body>
+
+<h1>🐑 herdr-remote</h1>
+<div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Disconnected</span></div>
+
+<div class="connect-bar">
+  <input id="relayUrl" type="url" placeholder="wss://your-tunnel.trycloudflare.com" />
+  <button onclick="connect()">Connect</button>
+</div>
+
+<div id="agents"></div>
+
+<div class="modal" id="modal">
+  <div class="modal-content">
+    <button class="close-btn" onclick="closeModal()">×</button>
+    <h2 id="modalTitle"></h2>
+    <div class="prompt" id="modalPrompt"></div>
+    <div class="actions" id="modalActions"></div>
+    <div class="custom">
+      <input id="customInput" placeholder="Custom response…" />
+      <button onclick="sendCustom()">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let ws = null;
+let agents = [];
+let selectedAgent = null;
+
+// Load saved URL
+const saved = localStorage.getItem('herdr_relay_url');
+if (saved) document.getElementById('relayUrl').value = saved;
+
+function connect() {
+  const url = document.getElementById('relayUrl').value.trim();
+  if (!url) return;
+  localStorage.setItem('herdr_relay_url', url);
+  if (ws) ws.close();
+  setStatus('connecting');
+  ws = new WebSocket(url);
+  ws.onopen = () => setStatus('connected');
+  ws.onclose = () => { setStatus('disconnected'); setTimeout(() => connect(), 3000); };
+  ws.onerror = () => setStatus('disconnected');
+  ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+}
+
+function setStatus(s) {
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  dot.className = 'dot ' + (s === 'connected' ? 'green' : s === 'connecting' ? 'orange' : 'red');
+  text.textContent = s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function handleMessage(msg) {
+  if (msg.type === 'agents') {
+    agents = msg.agents;
+    render();
+  } else if (msg.type === 'blocked') {
+    const a = agents.find(x => x.pane_id === msg.pane_id);
+    if (a) { a.status = 'blocked'; a.prompt = msg.prompt; a.options = msg.options; }
+    else { agents.push({...msg, status: 'blocked'}); }
+    render();
+  }
+}
+
+function render() {
+  const blocked = agents.filter(a => a.status === 'blocked');
+  const working = agents.filter(a => a.status === 'working');
+  const idle = agents.filter(a => a.status === 'idle' || a.status === 'unknown');
+
+  let html = '';
+  if (blocked.length) html += section('Blocked', 'red', blocked);
+  if (working.length) html += section('Working', 'green', working);
+  if (idle.length) html += section('Idle', '#888', idle);
+  if (!agents.length) html = '<div class="empty">No agents connected.<br>Enter your relay URL above.</div>';
+
+  document.getElementById('agents').innerHTML = html;
+}
+
+function section(title, color, list) {
+  return `<div class="section">
+    <div class="section-header"><span class="dot" style="background:${color}"></span>${title}</div>
+    ${list.map(a => agentCard(a)).join('')}
+  </div>`;
+}
+
+function agentCard(a) {
+  const host = a.host && a.host !== 'local' ? ` <span style="color:#f97316">@${a.host}</span>` : '';
+  return `<div class="agent" onclick="openAgent('${a.pane_id}')">
+    <span class="dot" style="background:${a.status==='blocked'?'#ef4444':a.status==='working'?'#22c55e':'#888'}"></span>
+    <div class="info">
+      <div class="project">${a.project || a.agent}${host}</div>
+      <div class="meta">${a.agent} · ${a.status}</div>
+    </div>
+    ${a.status === 'blocked' ? '<span class="badge blocked">⚠ blocked</span>' : ''}
+  </div>`;
+}
+
+function openAgent(paneId) {
+  const a = agents.find(x => x.pane_id === paneId);
+  if (!a || a.status !== 'blocked') return;
+  selectedAgent = a;
+  document.getElementById('modalTitle').textContent = `${a.agent} — ${a.project}`;
+  document.getElementById('modalPrompt').textContent = a.prompt || 'Waiting for input…';
+
+  const options = a.options || ['yes, single permission', 'trust, always allow', 'no (tab to edit)'];
+  document.getElementById('modalActions').innerHTML = options.map(opt => {
+    const cls = opt.includes('yes') || opt.includes('approve') ? 'btn-approve' : opt.includes('trust') ? 'btn-trust' : 'btn-reject';
+    return `<button class="${cls}" onclick="respond('${opt.replace(/'/g,"\\'")}')">${opt}</button>`;
+  }).join('');
+
+  document.getElementById('modal').classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('active');
+  selectedAgent = null;
+}
+
+function respond(text) {
+  if (!selectedAgent || !ws) return;
+  ws.send(JSON.stringify({ type: 'respond', pane_id: selectedAgent.pane_id, text }));
+  selectedAgent.status = 'working';
+  selectedAgent.prompt = null;
+  closeModal();
+  render();
+}
+
+function sendCustom() {
+  const input = document.getElementById('customInput');
+  if (input.value.trim()) { respond(input.value.trim()); input.value = ''; }
+}
+
+// Auto-connect on load
+if (saved) setTimeout(connect, 100);
+</script>
+</body>
+</html>
