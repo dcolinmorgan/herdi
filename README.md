@@ -2,6 +2,8 @@
 
 Monitor and approve [herdr](https://herdr.dev) agents from your phone, menu bar, or Telegram — no SSH required.
 
+**[▶ Try the live demo](https://herdr-remote.pages.dev)** — no install, works on any phone
+
 ```
 herdr plugin install dcolinmorgan/herdr-push
 ./relay/start.sh
